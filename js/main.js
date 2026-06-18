@@ -22,10 +22,10 @@ function tambahKriteria() {
     const html = `
         <div class="row mb-3 kriteria-row" id="kriteria-${idKriteriaCounter}">
             <div class="col-md-5">
-                <input type="text" class="form-control kriteria-nama" placeholder="Nama Kriteria" />
+                <input type="text" class="form-control kriteria-nama" placeholder="Nama Kriteria (mis: Harga, Performa)" />
             </div>
             <div class="col-md-3">
-                <input type="number" class="form-control kriteria-bobot" placeholder="Bobot (0-1)" step="0.01" min="0" max="1" />
+                <input type="number" class="form-control kriteria-bobot" placeholder="Bobot (%)" step="0.01" min="0" max="100" />
             </div>
             <div class="col-md-3">
                 <select class="form-select kriteria-sifat">
@@ -66,7 +66,7 @@ function tambahAlternatif() {
     const html = `
         <div class="row mb-2 alternatif-row" id="alternatif-${idAlternatifCounter}">
             <div class="col-md-10">
-                <input type="text" class="form-control alternatif-nama" placeholder="Nama Alternatif" />
+                <input type="text" class="form-control alternatif-nama" placeholder="Nama Alternatif (mis: Laptop A, Laptop B)" />
             </div>
             <div class="col-md-2">
                 <button type="button" class="btn btn-danger btn-sm w-100" onclick="hapusAlternatif(${idAlternatifCounter})">
@@ -95,11 +95,9 @@ function hapusAlternatif(id) {
  * 
  * Proses:
  * 1. Ambil data kriteria dari form
- * 2. Kirim kriteria ke database
+ * 2. Validasi bobot (total harus = 100)
  * 3. Ambil data alternatif dari form
- * 4. Kirim alternatif ke database
- * 5. Generate form nilai matriks dinamis
- * 6. Minta user isi nilai matriks
+ * 4. Generate form nilai matriks dinamis
  */
 function simpanData() {
     // Validasi: minimal ada 1 kriteria dan 1 alternatif
@@ -118,7 +116,7 @@ function simpanData() {
         const bobot = parseFloat(baris.querySelector('.kriteria-bobot').value) || 0;
         const sifat = baris.querySelector('.kriteria-sifat').value;
         
-        if (nama) {
+        if (nama && bobot > 0) {
             dataKriteria.push({ nama, bobot, sifat });
         }
     });
@@ -132,16 +130,27 @@ function simpanData() {
         }
     });
     
-    // Validasi bobot
-    const totalBobot = dataKriteria.reduce((sum, k) => sum + k.bobot, 0);
-    if (Math.abs(totalBobot - 1.0) > 0.01) {
-        alert('⚠️ Total bobot harus = 1.0 (100%)\nTotal bobot Anda: ' + totalBobot.toFixed(2));
+    // Validasi: ada kriteria dan alternatif yg diisi
+    if (dataKriteria.length === 0) {
+        alert('⚠️ Isikan minimal 1 kriteria dengan bobot > 0!');
+        return;
+    }
+    if (dataAlternatif.length === 0) {
+        alert('⚠️ Isikan minimal 1 alternatif!');
         return;
     }
     
-    // Simpan ke database via AJAX
-    // (Implementasi AJAX untuk menyimpan kriteria dan alternatif)
-    // Untuk kesederhanaan, kita langsung ke step berikutnya
+    // Validasi bobot: total harus = 100
+    const totalBobot = dataKriteria.reduce((sum, k) => sum + k.bobot, 0);
+    if (Math.abs(totalBobot - 100) > 0.1) {
+        alert('⚠️ Total bobot harus = 100%\nTotal bobot Anda: ' + totalBobot.toFixed(2) + '%');
+        return;
+    }
+    
+    // Konversi bobot dari 0-100 ke 0-1 untuk perhitungan
+    dataKriteria.forEach(k => {
+        k.bobot = k.bobot / 100;
+    });
     
     // Generate form nilai matriks
     generateFormNilaiMatriks(dataKriteria, dataAlternatif);
@@ -174,7 +183,8 @@ function generateFormNilaiMatriks(kriteria, alternatif) {
     
     // Header kolom kriteria
     kriteria.forEach(k => {
-        html += `<th>${k.nama}<br/><small class="text-muted">(${k.sifat}, w=${k.bobot})</small></th>`;
+        const bobotPersen = (k.bobot * 100).toFixed(0);
+        html += `<th>${k.nama}<br/><small class="text-muted">(${k.sifat}, ${bobotPersen}%)</small></th>`;
     });
     html += '</tr></thead><tbody>';
     
@@ -207,11 +217,12 @@ function generateFormNilaiMatriks(kriteria, alternatif) {
 /**
  * Fungsi hitungSAW() - Hitung hasil SAW
  * 
- * Proses:
- * 1. Validasi input nilai matriks
- * 2. Kumpulkan semua nilai
- * 3. Kirim ke backend API hitung-saw.php
- * 4. Tampilkan hasil dalam 3 tabel
+ * Proses SAW:
+ * 1. Normalisasi: Ubah nilai ke skala 0-1
+ *    - Benefit: R = Nilai / Max
+ *    - Cost: R = Min / Nilai
+ * 2. Hitung skor V = Σ(Bobot × Normalisasi)
+ * 3. Urutkan dari terbesar ke terkecil
  */
 function hitungSAW() {
     const kriteria = JSON.parse(document.getElementById('data-kriteria-hidden').value);
@@ -231,7 +242,6 @@ function hitungSAW() {
                 allFilled = false;
             }
             
-            // Simpan dalam format yang sesuai untuk backend
             dataNilai.push({
                 alternatif_index: altIdx,
                 kriteria_index: kritIdx,
@@ -252,7 +262,7 @@ function hitungSAW() {
     // Tampilkan loading spinner
     document.getElementById('hasil-container').innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
     
-    // Siapkan data dalam format yang lebih sederhana untuk kalkulasi di frontend
+    // Hitung SAW
     const hasilRanking = hitungSAWFrontend(dataNilai, kriteria, alternatif);
     
     // Tampilkan hasil
@@ -262,16 +272,19 @@ function hitungSAW() {
 /**
  * Fungsi hitungSAWFrontend() - Hitung SAW langsung di frontend
  * 
- * Ini adalah implementasi frontend dari algoritma SAW untuk demo
- * Secara production, lebih baik menggunakan backend
+ * RUMUS SAW:
+ * 1. Normalisasi: R[i][j] = X[i][j] / max(X[j]) untuk benefit
+ *                 R[i][j] = min(X[j]) / X[i][j] untuk cost
+ * 2. Ranking: V[i] = Σ(w[j] × R[i][j])
+ * 3. Urutkan dari terbesar ke terkecil
  * 
  * @param dataNilai - Array nilai matriks
- * @param kriteria - Array kriteria
+ * @param kriteria - Array kriteria (bobot sudah dalam 0-1)
  * @param alternatif - Array alternatif
  * @return Array - Hasil ranking
  */
 function hitungSAWFrontend(dataNilai, kriteria, alternatif) {
-    // LANGKAH 1: Organisir data matriks
+    // LANGKAH 1: Organisir data dalam bentuk matriks 2D
     const matriks = {};
     alternatif.forEach((alt, altIdx) => {
         matriks[altIdx] = {};
@@ -281,47 +294,55 @@ function hitungSAWFrontend(dataNilai, kriteria, alternatif) {
         });
     });
     
-    // LANGKAH 2: Hitung max/min untuk setiap kriteria
+    // LANGKAH 2: Cari nilai max dan min untuk setiap kriteria
     const maxMinKriteria = {};
     kriteria.forEach((krit, kritIdx) => {
         const nilaiKriteria = alternatif.map((alt, altIdx) => matriks[altIdx][kritIdx]);
+        const nilaiYgAda = nilaiKriteria.filter(n => n > 0); // Filter hanya nilai > 0
+        
         maxMinKriteria[kritIdx] = {
-            max: Math.max(...nilaiKriteria),
-            min: Math.min(...nilaiKriteria),
+            max: nilaiYgAda.length > 0 ? Math.max(...nilaiYgAda) : 0,
+            min: nilaiYgAda.length > 0 ? Math.min(...nilaiYgAda) : 0,
             sifat: krit.sifat
         };
     });
     
-    // LANGKAH 3: Normalisasi
+    // LANGKAH 3: NORMALISASI - Ubah semua nilai ke skala 0-1
     const matriksNormalisasi = {};
     alternatif.forEach((alt, altIdx) => {
         matriksNormalisasi[altIdx] = {};
         kriteria.forEach((krit, kritIdx) => {
             const nilai = matriks[altIdx][kritIdx];
+            const maxVal = maxMinKriteria[kritIdx].max;
+            const minVal = maxMinKriteria[kritIdx].min;
             const sifat = maxMinKriteria[kritIdx].sifat;
             
-            let rNormalisasi;
+            let rNormalisasi = 0;
+            
             if (sifat === 'benefit') {
-                // Benefit: bagi dengan max
-                rNormalisasi = maxMinKriteria[kritIdx].max > 0 
-                    ? nilai / maxMinKriteria[kritIdx].max 
-                    : 0;
+                // BENEFIT: semakin besar semakin baik
+                // Rumus: R = Nilai / Max
+                rNormalisasi = maxVal > 0 ? nilai / maxVal : 0;
             } else {
-                // Cost: min / nilai
-                rNormalisasi = nilai > 0 
-                    ? maxMinKriteria[kritIdx].min / nilai 
-                    : 0;
+                // COST: semakin kecil semakin baik
+                // Rumus: R = Min / Nilai
+                rNormalisasi = nilai > 0 ? minVal / nilai : 0;
             }
             
             matriksNormalisasi[altIdx][kritIdx] = rNormalisasi;
         });
     });
     
-    // LANGKAH 4: Hitung V[i] = Σ(w[j] × R[i][j])
+    // LANGKAH 4: HITUNG SKOR V[i] = Σ(w[j] × R[i][j])
+    // Untuk setiap alternatif, hitung total bobot × normalisasi
     const hasilRanking = alternatif.map((alt, altIdx) => {
         let nilaiV = 0;
+        
+        // Jumlahkan: (bobot kriteria × nilai normalisasi) untuk semua kriteria
         kriteria.forEach((krit, kritIdx) => {
-            nilaiV += krit.bobot * matriksNormalisasi[altIdx][kritIdx];
+            const bobot = krit.bobot; // Sudah dalam bentuk 0-1
+            const normalisasi = matriksNormalisasi[altIdx][kritIdx];
+            nilaiV += bobot * normalisasi;
         });
         
         return {
@@ -331,10 +352,10 @@ function hitungSAWFrontend(dataNilai, kriteria, alternatif) {
         };
     });
     
-    // LANGKAH 5: Urutkan dari terbesar ke terkecil
+    // LANGKAH 5: URUTKAN dari skor terbesar ke terkecil
     hasilRanking.sort((a, b) => b.nilaiV - a.nilaiV);
     
-    // Tambah urutan ranking
+    // Tambahkan urutan ranking
     hasilRanking.forEach((item, idx) => {
         item.ranking = idx + 1;
     });
@@ -348,11 +369,6 @@ function hitungSAWFrontend(dataNilai, kriteria, alternatif) {
  * Tabel 1: Matriks Keputusan Awal (nilai asli)
  * Tabel 2: Matriks Normalisasi (nilai 0-1)
  * Tabel 3: Ranking Akhir (skor V urut dari terbaik)
- * 
- * @param dataNilai - Data nilai matriks
- * @param kriteria - Array kriteria
- * @param alternatif - Array alternatif
- * @param hasilRanking - Hasil ranking yang sudah dihitung
  */
 function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
     let html = '';
@@ -365,7 +381,7 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
             </div>
             <div class="card-body">
                 <p class="text-muted">
-                    Tabel ini menunjukkan nilai asli untuk setiap alternatif dan kriteria
+                    Tabel ini menunjukkan nilai asli untuk setiap alternatif dan kriteria sebelum dinormalisasi
                 </p>
                 <div class="table-responsive">
                     <table class="table table-bordered table-hover">
@@ -404,8 +420,8 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
             <div class="card-body">
                 <p class="text-muted">
                     <strong>Rumus Normalisasi:</strong><br/>
-                    • <strong>Benefit:</strong> R[i][j] = X[i][j] / max(X[j])<br/>
-                    • <strong>Cost:</strong> R[i][j] = min(X[j]) / X[i][j]
+                    <strong class="text-success">• Benefit (↑):</strong> R[i][j] = Nilai / Max<br/>
+                    <strong class="text-danger">• Cost (↓):</strong> R[i][j] = Min / Nilai
                 </p>
                 <div class="table-responsive">
                     <table class="table table-bordered table-hover">
@@ -415,7 +431,8 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
     `;
     
     kriteria.forEach(k => {
-        html += `<th>${k.nama} <small>(${k.sifat})</small></th>`;
+        const icon = k.sifat === 'benefit' ? '↑' : '↓';
+        html += `<th>${k.nama} <small>${icon}</small></th>`;
     });
     html += '</tr></thead><tbody>';
     
@@ -432,9 +449,10 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
     const maxMinKriteria = {};
     kriteria.forEach((krit, kritIdx) => {
         const nilaiKriteria = alternatif.map((alt, altIdx) => matriks[altIdx][kritIdx]);
+        const nilaiYgAda = nilaiKriteria.filter(n => n > 0);
         maxMinKriteria[kritIdx] = {
-            max: Math.max(...nilaiKriteria),
-            min: Math.min(...nilaiKriteria),
+            max: nilaiYgAda.length > 0 ? Math.max(...nilaiYgAda) : 0,
+            min: nilaiYgAda.length > 0 ? Math.min(...nilaiYgAda) : 0,
             sifat: krit.sifat
         };
     });
@@ -444,17 +462,15 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
         
         kriteria.forEach((krit, kritIdx) => {
             const nilai = matriks[altIdx][kritIdx];
+            const maxVal = maxMinKriteria[kritIdx].max;
+            const minVal = maxMinKriteria[kritIdx].min;
             const sifat = maxMinKriteria[kritIdx].sifat;
             
-            let rNormalisasi;
+            let rNormalisasi = 0;
             if (sifat === 'benefit') {
-                rNormalisasi = maxMinKriteria[kritIdx].max > 0 
-                    ? nilai / maxMinKriteria[kritIdx].max 
-                    : 0;
+                rNormalisasi = maxVal > 0 ? nilai / maxVal : 0;
             } else {
-                rNormalisasi = nilai > 0 
-                    ? maxMinKriteria[kritIdx].min / nilai 
-                    : 0;
+                rNormalisasi = nilai > 0 ? minVal / nilai : 0;
             }
             
             html += `<td class="text-center">${rNormalisasi.toFixed(4)}</td>`;
@@ -477,7 +493,7 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
             <div class="card-body">
                 <p class="text-muted">
                     <strong>Rumus Perankingan:</strong> V[i] = Σ(w[j] × R[i][j])<br/>
-                    Urutan dari skor tertinggi ke terendah
+                    Urutan dari skor tertinggi ke terendah (TERBAIK DI ATAS)
                 </p>
                 <div class="table-responsive">
                     <table class="table table-striped table-hover">
@@ -495,18 +511,18 @@ function tampilkanHasil(dataNilai, kriteria, alternatif, hasilRanking) {
     hasilRanking.forEach((item, idx) => {
         let badge = '';
         if (item.ranking === 1) {
-            badge = '<span class="badge bg-success">Terbaik</span>';
+            badge = '<span class="badge bg-success">🏆 TERBAIK</span>';
         } else if (item.ranking === hasilRanking.length) {
-            badge = '<span class="badge bg-danger">Terakhir</span>';
+            badge = '<span class="badge bg-danger">TERENDAH</span>';
         } else {
-            badge = '';
+            badge = '<span class="badge bg-info">Ranking</span>';
         }
         
         html += `
             <tr>
-                <td class="text-center"><strong>${item.ranking}</strong></td>
-                <td>${item.nama_alternatif}</td>
-                <td class="text-center"><strong>${item.nilaiV.toFixed(4)}</strong></td>
+                <td class="text-center"><strong style="font-size: 18px;">${item.ranking}</strong></td>
+                <td><strong>${item.nama_alternatif}</strong></td>
+                <td class="text-center"><strong style="font-size: 16px; color: #0d6efd;">${item.nilaiV.toFixed(4)}</strong></td>
                 <td class="text-center">${badge}</td>
             </tr>
         `;
