@@ -331,34 +331,6 @@
             min-height: 200px;
         }
         
-        /* ===== STEP INDICATOR ===== */
-        .step-indicator {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            justify-content: center;
-        }
-        
-        .step-indicator .step {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: 600;
-            background: #e5e7eb;
-            color: #6b7280;
-            transition: all 0.2s ease;
-        }
-        
-        .step-indicator .step.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            transform: scale(1.1);
-        }
-        
         /* ===== DIVIDER ===== */
         .divider {
             height: 1px;
@@ -402,13 +374,6 @@
             </div>
             <h1>SAW Calculator</h1>
             <p>Simple Additive Weighting - Sistem Pendukung Keputusan</p>
-        </div>
-        
-        <!-- STEP INDICATOR -->
-        <div class="step-indicator">
-            <div class="step active" id="step-1">1</div>
-            <div class="step" id="step-2">2</div>
-            <div class="step" id="step-3">3</div>
         </div>
         
         <!-- SECTION 1: INPUT DATA -->
